@@ -1,9 +1,10 @@
 ###BACS 9-28-15 BN###
 
 #Trouble shooting 'dsb' data#
+#dsb = days since burn
 
-dat=read.csv("Rdat_BN.csv")
-burn=read.csv("burn.vectors.csv")
+dat=read.csv("Rdat_BN.csv") #load table of all data for all years
+burn=read.csv("burn.vectors.csv") #each column is a point, rows for day burned (in days since 1999)
 
 unique(dat$PointName)
 p.name<-levels(dat$PointName)
