@@ -1,0 +1,208 @@
+# Elf owls -- point count data from 2001
+
+# Load UNMARKED 
+
+library(unmarked)
+
+# --- Read in data --- #
+
+#    Description of relevant variables:
+
+#    elfowl.1-elfowl.3 = counts from 3 surveys, done a month apart
+#    WeekOfYr.1-WeekOfYr.3 = week of year when surveys done
+#    Route = name of location of the 4 Routes surveyed 
+#    Point = name of 18 locations surveyed along each route 
+
+ElfOwlData <- read.csv("http://ag.arizona.edu/~steidl/ElfOwlCounts2001.csv?attredirects=0")
+
+# ElfOwlData <- read.csv("C:/Users/Bob/Documents/R/Unmarked/ElfOwlCounts2001.csv", header=TRUE) 
+
+# Remove a placeholder variable
+
+ElfOwlData$junk <- NULL
+
+# view the first few lines of the data frame
+
+head(ElfOwlData)
+
+# Display structure (i.e., names and types of variables making up data frame)
+
+str(ElfOwlData)
+
+# Organize distance data and covariates into an unmarkedFrame object
+
+ElfOwl <- unmarkedFramePCount(
+	y = ElfOwlData[,1:3],
+	siteCovs = ElfOwlData[,7:8],
+	obsCovs = list(WeekOfYr = ElfOwlData[,4:6])
+	)
+
+# Summary information on elements of the object ElfOwl
+
+summary(ElfOwl)
+
+# Average counts per point per visit (only created to display)
+
+MeanCounts <- (ElfOwlData$elfowl.1 + ElfOwlData$elfowl.2 + ElfOwlData$elfowl.3)/3
+
+# Create histogram of the mean number of owls detected per point
+
+hist(MeanCounts, col="gray", breaks=4, main="Elf Owls", xlab="Mean no. detected per point")
+
+
+
+#--- Fit different models assuming abundance has a Poisson distribution (N-mixture model) ---#
+
+# Note: models specifed with detection process first, state variable second  
+
+# Fit null model = detection prob. and abundance are constant; that is, fit only intercepts
+
+null <- pcount(~1 ~1, data = ElfOwl, K=50) 
+
+# Have a look at these estimates
+
+null
+
+# Convert estimates from link-scale to original scale - this function only works 
+# when detection or state processes have no covariates
+
+backTransform(null, type="state")	# Abundance
+backTransform(null, type="det")		# Det. prob
+
+# Another way of doing the same thing
+
+exp(coef(null, type="state"))		# Abundance
+plogis(coef(null, type="det"))		# Det. prob
+
+# Fit a few more interesting models
+
+WeekOfYr.null <- pcount(~WeekOfYr ~1, ElfOwl, K=50)       # det. prob. varies by week, abundance constant
+Route.null <- pcount(~Route ~1, ElfOwl, K=50)             # det. prob. varies by route, abundance constant
+null.Route <- pcount(~1 ~Route, ElfOwl, K=50)             # det. prob. constant, abundance varies by route
+WeekOfYr.Route <- pcount(~WeekOfYr ~Route, ElfOwl, K=50)  # det. prob. varies by week, abundance by route
+
+# Explore whether det. prob. has curvature through time
+# Note that WeekOfYrSq.null throws NaNs
+
+WeekOfYrSq.null <-  pcount(~WeekOfYr+I(WeekOfYr^2) ~1, ElfOwl, K=50)       
+WeekOfYrSq.Route <- pcount(~WeekOfYr+I(WeekOfYr^2) ~Route, ElfOwl, K=50)  
+
+
+
+#--- Compare models using AIC ---#
+
+# Organize models into an object for model selection
+
+fits1 <- fitList(null=null, WeekOfYr.null=WeekOfYr.null, Route.null=Route.null,
+                 null.Route=null.Route, WeekOfYr.Route=WeekOfYr.Route, 
+                 WeekOfYrSq.null=WeekOfYrSq.null, WeekOfYrSq.Route=WeekOfYrSq.Route)
+
+# Perform model selection using AIC
+
+(ms1 <- modSel(fits1))
+
+
+
+# Explore parameter estimates from top model
+
+levels(ElfOwlData$Route)  # First observation becomes the reference level for factor
+
+coef(WeekOfYrSq.Route, type="state")      # on the link scale (= log)
+exp(coef(WeekOfYrSq.Route, type="state")) # backtransformed (= raised to base e)
+
+coef(WeekOfYrSq.Route, type="det")         # on the link scale (= logit)
+plogis(coef(WeekOfYrSq.Route, type="det")) # backtransformed (= inverse logit)
+
+
+
+#-- Plot relationship between detection probability and week of year ---#
+
+# Create a variable spanning the range of WeekOfYear of surveys, 12 to 24
+
+plotData <- data.frame(WeekOfYr = seq(from=12, to=24, length=100))
+head(plotData)
+
+# Compute predicted values of detection probability for different weeks
+
+WeekPred <- predict(WeekOfYr.Route, newdata=plotData, type="det")
+WeekPredSq <- predict(WeekOfYrSq.Route, newdata=plotData, type="det")
+head(WeekPred)
+head(WeekPredSq)
+
+# Plot detection probability versus WeekOfYear including upper and lower bounds of 95% CI
+
+plot(plotData$WeekOfYr, WeekPred[,"Predicted"], type="l", ylim=0:1,
+   xlab="Week of Year", ylab="Detection probability (95% CI)")
+   lines(plotData$WeekOfYr, WeekPred[,"Predicted"]-1.96*WeekPred[,"SE"], lty=2)
+   lines(plotData$WeekOfYr, WeekPred[,"Predicted"]+1.96*WeekPred[,"SE"], lty=2)	
+
+   # overlay prediction from model with curvature
+   lines(plotData$WeekOfYr, WeekPredSq[,"Predicted"], lty=1, col="darkred") 
+
+
+#--- Plot estimated abundance by routes while holding all else constant ---#
+
+par(mfrow=c(2,1)
+
+# Average WeekOfYear over all visits and all points
+
+MeanWeek <- mean(c(ElfOwlData$WeekOfYr.1, ElfOwlData$WeekOfYr.2, ElfOwlData$WeekOfYr.3))
+
+# Create a data frame containing WeekOfYear and Route names
+
+RouteData <- data.frame(WeekOfYr = MeanWeek, 
+             Route = as.factor(c("Expansion", "RockingK", "Speedway", "Wentworth")))
+             
+# Compute predicted values of the state variable (abundances) from the fitted model WeekOfYr.Route
+# for each route during the same WeekOfYear 
+
+Routes <- predict(WeekOfYr.Route, newdata=RouteData, type="state")
+
+# Create a vertical bar graph with error bars of predicted abundances for each route
+
+bp <- barplot(Routes[,"Predicted"], names=c("Expansion", "RockingK", "Speedway", "Wentworth"), 
+              ylim= c(0, 8), xlab="", ylab="Estimated No. Elf Owls (SE)", pch=16)
+              arrows(bp, Routes[,"Predicted"], bp, Routes[,"Predicted"]+Routes[,"SE"], 
+	            code=2, angle=90, length=0.05)
+	      box() 
+
+
+
+#--- Plot raw counts by route while holding all else constant ---#
+#--- Contrast this plot with previous plot                    ---#
+
+# Compute mean number of owls detected per Route/station/visit 
+
+RouteMeans <- tapply(MeanCounts, ElfOwlData$Route, mean)
+RouteSE <- sqrt(tapply(MeanCounts, ElfOwlData$Route, var)/18)
+
+# Create a vertical bar graph of raw counts for each route
+
+bp <- barplot(RouteMeans, names=c("Expansion", "RockingK", "Speedway", "Wentworth"), 
+              ylim= c(0, 8), xlab="", ylab="Unadjusted No. Elf Owls (SE)", pch=16)
+              arrows(bp, RouteMeans, bp, RouteMeans+RouteSE, code=2, angle=90, length=0.05)
+              box() 
+
+par(mfrow=c(1,1)
+
+
+
+
+#--- Fit models using a negative-binomial mixture model instead of Poisson ---#
+
+null.NB <- pcount(~1~1, ElfOwl, mixture = "NB", K=50)
+WeekOfYr.null.NB <- pcount(~WeekOfYr ~1, ElfOwl, mixture = "NB", K=50)
+Route.null.NB <- pcount(~Route ~1, ElfOwl, mixture = "NB", K=50)
+null.Route.NB <- pcount(~1 ~Route, ElfOwl, mixture = "NB", K=50)
+WeekOfYr.Route.NB <- pcount(~WeekOfYr ~Route, ElfOwl, mixture = "NB", K=50)
+
+# Compares models using AIC
+
+fits2 <- fitList(null.NB=null.NB, WeekOfYr.null.NB=WeekOfYr.null.NB, Route.null.NB=Route.null.NB,
+	 null.Route.NB=null.Route.NB, WeekOfYr.Route.NB=WeekOfYr.Route.NB)
+(ms2 <- modSel(fits2))
+
+
+# Contrast output of Poisson with NB 
+WeekOfYr.Route
+WeekOfYr.Route.NB
