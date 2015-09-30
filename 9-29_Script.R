@@ -13,6 +13,8 @@ p.vars<-names(burn)
 
 #here is a test modification from Scottt
 
+### here is another change I think you should make...
+
 
 ##these should both have 79 unique point names.  dat has data for many points not run in 2015
 ##the code below finds point names that differ from the 2015 point names (names in burn)
